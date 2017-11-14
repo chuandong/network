@@ -1,0 +1,9 @@
+object=selectser.o selectcli.o
+edit:$(object)
+	cc -o edit $(object)
+selectser.o:selectser.c
+	cc -c selectser.c
+selectcli.o:selectcli.c
+	cc -c selectcli.c
+clean:
+	rm edit $(object)
