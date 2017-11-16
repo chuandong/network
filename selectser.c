@@ -15,29 +15,31 @@
 #define PORT        8787
 #define MAXLINE     1024
 #define LISTENQ     5
-#define SIZE        10
+#define SIZE        3
 
 typedef struct server_context_st
 {
-    int cli_cnt;        /*客户端个数*/
-    int clifds[SIZE];   /*客户端的个数*/
-    fd_set allfds;      /*句柄集合*/
-    int maxfd;          /*句柄最大值*/
+    int cli_cnt;        /*client bumbers*/
+    int clifds[SIZE];   /*client description*/
+    fd_set allfds;      /*handle set*/
+    int maxfd;          /*handle max value*/
 } server_context_st;
 static server_context_st *s_srv_ctx = NULL;
-/*===========================================================================
- * ==========================================================================*/
+
+char filename[20]={0};
+
 static int create_server_proc(const char* ip,int port)
 {
     int  fd;
     struct sockaddr_in servaddr;
     fd = socket(AF_INET, SOCK_STREAM,0);
     if (fd == -1) {
-        fprintf(stderr, "create socket fail,erron:%d,reason:%s\n", errno, strerror(errno));
+        fprintf(stderr, "create socket fail,erron:%d,reason:%s\n",
+                errno, strerror(errno));
         return -1;
     }
 
-    /*一个端口释放后会等待两分钟之后才能再被使用，SO_REUSEADDR是让端口释放后立即就可以被再次使用。*/
+    /*A port freed waiting for two seconds later by use, SO_REUSEADDR effect is freed port can by used*/
     int reuse = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) == -1) {
         return -1;
@@ -65,47 +67,55 @@ static int accept_client_proc(int srvfd)
     socklen_t cliaddrlen;
     cliaddrlen = sizeof(cliaddr);
     int clifd = -1;
+    static int i = 0;
 
-    printf("accpet clint proc is called.\n");
+    printf("%05d accpet clint proc is called.\n", __LINE__);
 
-ACCEPT:
-    clifd = accept(srvfd,(struct sockaddr*)&cliaddr,&cliaddrlen);
+    while (1)
+    {
+        clifd = accept(srvfd,(struct sockaddr*)&cliaddr,&cliaddrlen);
 
-    if (clifd == -1) {
-        if (errno == EINTR) {
-            goto ACCEPT;
-        } else {
-            fprintf(stderr, "accept fail,error:%s\n", strerror(errno));
+        if (clifd == -1) {
+            if (errno == EINTR) {
+                continue;
+            } else {
+                fprintf(stderr, "%05d accept fail,error:%s\n", __LINE__, strerror(errno));
+                return -1;
+            }
+        }
+        
+        fprintf(stdout, "%05d accept a new client: %s:%d\n", __LINE__,
+            inet_ntoa(cliaddr.sin_addr),cliaddr.sin_port);
+    
+
+        /*add new connect descriptor to array*/
+        for (i = 0; i < SIZE; i++) {
+            if (s_srv_ctx->clifds[i] < 0) {
+                s_srv_ctx->clifds[i] = clifd;
+                s_srv_ctx->cli_cnt++;
+                break;
+            }
+        }
+        
+        printf("%05d i:[%d]\n", __LINE__, i);
+        if (i == SIZE) {
+            fprintf(stderr,"%05d too many clients.\n", __LINE__);
             return -1;
         }
+        
+        break;
     }
-
-    fprintf(stdout, "accept a new client: %s:%d\n",
-            inet_ntoa(cliaddr.sin_addr),cliaddr.sin_port);
-
-    //将新的连接描述符添加到数组中
-    int i = 0;
-    for (i = 0; i < SIZE; i++) {
-        if (s_srv_ctx->clifds[i] < 0) {
-            s_srv_ctx->clifds[i] = clifd;
-            s_srv_ctx->cli_cnt++;
-            break;
-        }
-    }
-
-    if (i == SIZE) {
-        fprintf(stderr,"too many clients.\n");
-        return -1;
-    }
-}
-
-static int handle_client_msg(int fd, char *buf) 
-{
-    assert(buf);
-    printf("recv buf is :%s\n", buf);
-    write(fd, buf, strlen(buf) +1);
+    
     return 0;
 }
+
+/*static int handle_client_msg(int fd, char *buf) 
+{
+    if (strlen(buf) == 0)
+    sprintf(buf, "Please input infomation give service.");    
+    write(fd, buf, strlen(buf) +1);
+    return 0;
+}*/
 
 static void recv_client_msg(fd_set *readfds)
 {
@@ -117,50 +127,62 @@ static void recv_client_msg(fd_set *readfds)
         if (clifd < 0) {
             continue;
         }
-        /*判断客户端套接字是否有数据*/
+        
+        /*judge client socket if have data*/
         if (FD_ISSET(clifd, readfds)) {
-            //接收客户端发送的信息
+            /*recv client send infomation*/
             n = read(clifd, buf, MAXLINE);
             if (n <= 0) {
-                /*n==0表示读取完成，客户都关闭套接字*/
+                /*n==0 express read accomplish, client close socket*/
                 FD_CLR(clifd, &s_srv_ctx->allfds);
                 close(clifd);
                 s_srv_ctx->clifds[i] = -1;
                 continue;
             }
-            handle_client_msg(clifd, buf);
+            sleep(5);
+            printf("recv buf is :[%s]\n", buf);
+            /*handle_client_msg(clifd, buf);*/
+            
         }
     }
 }
+
 static void handle_client_proc(int srvfd)
 {
     int  clifd = -1;
     int  retval = 0;
-    fd_set *readfds = &s_srv_ctx->allfds;
     struct timeval tv;
     int i = 0;
+    char writebuf[MAXLINE]={0};
+    
+    fd_set *readfds = &s_srv_ctx->allfds;
+    fd_set *writefds= &s_srv_ctx->allfds;
 
     while (1) {
-        /*每次调用select前都要重新设置文件描述符和时间，因为事件发生后，文件描述符和时间都被内核修改啦*/
+        /*everytime transfer select needs to set file description and time, because the file description and time could modify by kernel when the function finished*/
         FD_ZERO(readfds);
-        /*添加监听套接字*/
+        FD_ZERO(writefds);
+        /*add listen socket*/
         FD_SET(srvfd, readfds);
+        FD_SET(srvfd, writefds);
         s_srv_ctx->maxfd = srvfd;
 
         tv.tv_sec = 30;
         tv.tv_usec = 0;
-        /*添加客户端套接字*/
+        printf("%s %05d connect client numbers is:[%d]\n", filename, __LINE__, s_srv_ctx->cli_cnt);
+        /*add client socket*/
         for (i = 0; i < s_srv_ctx->cli_cnt; i++) {
             clifd = s_srv_ctx->clifds[i];
-            /*去除无效的客户端句柄*/
+            /*drop useless handles*/
             if (clifd != -1) {
                 FD_SET(clifd, readfds);
             }
             s_srv_ctx->maxfd = (clifd > s_srv_ctx->maxfd ? clifd : s_srv_ctx->maxfd);
+            printf("%5d maxfd:[%d]", __LINE__, s_srv_ctx->maxfd);
         }
 
-        /*开始轮询接收处理服务端和客户端套接字*/
-        retval = select(s_srv_ctx->maxfd + 1, readfds, NULL, NULL, &tv);
+        /*start select recv deal with service and client socket*/
+        retval = select(s_srv_ctx->maxfd + 1, readfds, writefds, NULL, &tv);
         if (retval == -1) {
             fprintf(stderr, "select error:%s.\n", strerror(errno));
             return;
@@ -169,12 +191,29 @@ static void handle_client_proc(int srvfd)
             fprintf(stdout, "select is timeout.\n");
             continue;
         }
+        
+        printf("%d FD_ISSET:[%d]", __LINE__, FD_ISSET(srvfd, readfds));
         if (FD_ISSET(srvfd, readfds)) {
-            /*监听客户端请求*/
+            /*listen client request*/
             accept_client_proc(srvfd);
         } else {
-            /*接受处理客户端消息*/
+            
+            printf("%d esle FD_ISSET:[%d]", __LINE__, FD_ISSET(srvfd, readfds));
+            /*recv client message*/
             recv_client_msg(readfds);
+        }
+        /*if (FD_ISSET(srvfd, writefds))
+        {
+            printf("writefds need you input >:\n");
+            fgets(writebuf, sizeof(writebuf), stdin);
+            write(srvfd, writebuf, strlen(writebuf));
+        }*/
+        
+        if (s_srv_ctx->cli_cnt == 0)
+        {
+            printf("try to connection...");
+            sleep(5);
+            continue;
         }
     }
 }
@@ -207,18 +246,22 @@ static int server_init()
 int main(int argc,char *argv[])
 {
     int  srvfd;
-    /*初始化服务端context*/
+    
+    memcpy(filename, argv[0], strlen(argv[0]));
+    
+    /*init service context*/
     if (server_init() < 0) {
         return -1;
     }
-    /*创建服务,开始监听客户端请求*/
+    /*create service bind and linsten*/
     srvfd = create_server_proc(IPADDR, PORT);
     if (srvfd < 0) {
         fprintf(stderr, "socket create or bind fail.\n");
         server_uninit();
         return -1;
     }
-    /*开始接收并处理客户端请求*/
+   
+    /*start recv and deal with client request*/
     handle_client_proc(srvfd);
     server_uninit();
     return 0;
