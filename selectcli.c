@@ -47,7 +47,7 @@ static void handle_connection(int sockfd)
         FD_SET(sockfd,&writefds);
         maxfdp = sockfd;
 
-        tv.tv_sec = 5;
+        tv.tv_sec = 3;
         tv.tv_usec = 0;
 
         retval = select(maxfdp+1,&readfds, &writefds,NULL,&tv);
@@ -74,8 +74,8 @@ static void handle_connection(int sockfd)
             /*handle_recv_msg(sockfd, recvline);*/
         }
         
-        /*if (FD_ISSET(sockfd, &writefds)) {
-            printf("Plese input >:\n");
+        if (FD_ISSET(sockfd, &writefds)) {
+            printf("Plese input >:");
             fgets(sendline, sizeof(sendline), stdin);
             n = write(sockfd,sendline,MAXLINE);
             if (n <= 0) {
@@ -84,9 +84,9 @@ static void handle_connection(int sockfd)
                 FD_CLR(sockfd,&readfds);
                 return;
             }
-
-            handle_recv_msg(sockfd, recvline);
-        }*/
+            sleep(5);
+            /*handle_recv_msg(sockfd, recvline);*/
+        }
 
     }
 }

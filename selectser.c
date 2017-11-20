@@ -22,6 +22,7 @@ typedef struct server_context_st
     int cli_cnt;        /*client bumbers*/
     int clifds[SIZE];   /*client description*/
     fd_set allfds;      /*handle set*/
+    fd_set writefds;
     int maxfd;          /*handle max value*/
 } server_context_st;
 static server_context_st *s_srv_ctx = NULL;
@@ -117,19 +118,25 @@ static int accept_client_proc(int srvfd)
     return 0;
 }*/
 
-static void recv_client_msg(fd_set *readfds)
+char *recv_client_msg(fd_set *readfds)
 {
     int i = 0, n = 0;
     int clifd;
+    char *p =NULL;
     char buf[MAXLINE] = {0};
+    
+    printf("%d cli_cnt:[%d]\n", __LINE__, s_srv_ctx->cli_cnt);
     for (i = 0;i <= s_srv_ctx->cli_cnt;i++) {
         clifd = s_srv_ctx->clifds[i];
         if (clifd < 0) {
             continue;
         }
         
+        printf("%d readfds [%d]", __LINE__, FD_ISSET(clifd, readfds));
         /*judge client socket if have data*/
         if (FD_ISSET(clifd, readfds)) {
+            
+            printf("%d readfds...", __LINE__);
             /*recv client send infomation*/
             n = read(clifd, buf, MAXLINE);
             if (n <= 0) {
@@ -139,26 +146,46 @@ static void recv_client_msg(fd_set *readfds)
                 s_srv_ctx->clifds[i] = -1;
                 continue;
             }
-            sleep(5);
-            printf("recv buf is :[%s]\n", buf);
-            /*handle_client_msg(clifd, buf);*/
+            if (strlen(buf) == 0)
+            {
+                printf("%d waiting rcv info...", __LINE__);
+                continue;
+            }
+            memcpy(p, buf, sizeof(buf));
             
+            printf("recv buf is :[%s]\n", buf);
+            
+            return p;
+            /*handle_client_msg(clifd, buf);*/
         }
     }
+    
+    return NULL;
+}
+
+static void write_client_proc(int srvfd)
+{
+    char writebuf[MAXLINE]={0};
+    
+    printf("writefds need you input >:\n");
+    fgets(writebuf, sizeof(writebuf), stdin);
+    write(srvfd, writebuf, sizeof(writebuf));
 }
 
 static void handle_client_proc(int srvfd)
 {
     int  clifd = -1;
     int  retval = 0;
-    struct timeval tv;
     int i = 0;
-    char writebuf[MAXLINE]={0};
+    char *p =NULL;
+    
+    
+    struct timeval tv;
     
     fd_set *readfds = &s_srv_ctx->allfds;
-    fd_set *writefds= &s_srv_ctx->allfds;
+    fd_set *writefds= &s_srv_ctx->writefds;
 
-    while (1) {
+   while (1) {
         /*everytime transfer select needs to set file description and time, because the file description and time could modify by kernel when the function finished*/
         FD_ZERO(readfds);
         FD_ZERO(writefds);
@@ -167,29 +194,46 @@ static void handle_client_proc(int srvfd)
         FD_SET(srvfd, writefds);
         s_srv_ctx->maxfd = srvfd;
 
-        tv.tv_sec = 30;
+        tv.tv_sec = 5;
         tv.tv_usec = 0;
         printf("%s %05d connect client numbers is:[%d]\n", filename, __LINE__, s_srv_ctx->cli_cnt);
         /*add client socket*/
         for (i = 0; i < s_srv_ctx->cli_cnt; i++) {
             clifd = s_srv_ctx->clifds[i];
             /*drop useless handles*/
-            if (clifd != -1) {
+            /*if (clifd != -1) {
                 FD_SET(clifd, readfds);
-            }
+            }*/
+            
+            FD_SET(clifd, writefds);
+            FD_SET(clifd, readfds);
+            
             s_srv_ctx->maxfd = (clifd > s_srv_ctx->maxfd ? clifd : s_srv_ctx->maxfd);
             printf("%5d maxfd:[%d]", __LINE__, s_srv_ctx->maxfd);
         }
-
+        
+        /*if (FD_ISSET(clifd, writefds))
+        {
+            write_client_proc(clifd);
+        }*/
+        
         /*start select recv deal with service and client socket*/
         retval = select(s_srv_ctx->maxfd + 1, readfds, writefds, NULL, &tv);
+        
+        /*for (i = 0; i < s_srv_ctx->maxfd; i++)
+        {
+            printf("%d read:[%s], write:[%s]\n", __LINE__, FD_ISSET(s_srv_ctx->maxfd, readfds)? "r":"", FD_ISSET(s_srv_ctx->maxfd, writefds)? "w":"");
+        }*/
+        
+        
+        
         if (retval == -1) {
             fprintf(stderr, "select error:%s.\n", strerror(errno));
             return;
         }
         if (retval == 0) {
-            fprintf(stdout, "select is timeout.\n");
-            continue;
+            fprintf(stdout, "%d select is timeout.\n", __LINE__);
+            
         }
         
         printf("%d FD_ISSET:[%d]", __LINE__, FD_ISSET(srvfd, readfds));
@@ -200,14 +244,21 @@ static void handle_client_proc(int srvfd)
             
             printf("%d esle FD_ISSET:[%d]", __LINE__, FD_ISSET(srvfd, readfds));
             /*recv client message*/
-            recv_client_msg(readfds);
+            p = recv_client_msg(readfds);
+            if (p != NULL)
+            {
+                if (FD_ISSET(clifd, writefds))
+                {
+                    write_client_proc(clifd);
+                }
+            }else
+            {
+                sleep(5);
+                continue;
+            } 
+            
         }
-        /*if (FD_ISSET(srvfd, writefds))
-        {
-            printf("writefds need you input >:\n");
-            fgets(writebuf, sizeof(writebuf), stdin);
-            write(srvfd, writebuf, strlen(writebuf));
-        }*/
+        
         
         if (s_srv_ctx->cli_cnt == 0)
         {
@@ -215,7 +266,8 @@ static void handle_client_proc(int srvfd)
             sleep(5);
             continue;
         }
-    }
+        
+   }
 }
 
 static void server_uninit()
