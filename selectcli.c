@@ -10,23 +10,10 @@
 #include <errno.h>
 
 #define MAXLINE 1024
-#define IPADDRESS "127.0.0.1"
-#define SERV_PORT 8787
+#define IPADDRESS "0.0.0.0"
+#define SERV_PORT 6666
 
 #define max(a,b) (a > b) ? a : b
-
-/*static void handle_recv_msg(int sockfd, char *buf)
-{
-    printf("client recv msg is:%s\n", buf);
-    if (memcmp(&buf[0], "P", 1) == 0)
-    {
-        printf("Please input you want to write:\n");
-        
-        fgets(buf, strlen(buf), stdin);
-    }
-    
-    write(sockfd, buf, strlen(buf) +1);
-}*/
 
 static void handle_connection(int sockfd)
 {
@@ -43,11 +30,13 @@ static void handle_connection(int sockfd)
 
         FD_ZERO(&readfds);
         FD_ZERO(&writefds);
+        
         FD_SET(sockfd,&readfds);
         FD_SET(sockfd,&writefds);
+        
         maxfdp = sockfd;
 
-        tv.tv_sec = 3;
+        tv.tv_sec = 1;
         tv.tv_usec = 0;
 
         retval = select(maxfdp+1,&readfds, &writefds,NULL,&tv);
@@ -71,7 +60,6 @@ static void handle_connection(int sockfd)
             }
             
             printf("recv info is:[%s]\n", recvline);
-            /*handle_recv_msg(sockfd, recvline);*/
         }
         
         if (FD_ISSET(sockfd, &writefds)) {
@@ -85,7 +73,6 @@ static void handle_connection(int sockfd)
                 return;
             }
             sleep(5);
-            /*handle_recv_msg(sockfd, recvline);*/
         }
 
     }

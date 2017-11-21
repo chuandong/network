@@ -11,8 +11,8 @@
 #include <unistd.h>
 #include <assert.h>
 
-#define IPADDR      "127.0.0.1"
-#define PORT        8787
+#define IPADDR      "0.0.0.0"
+#define PORT        6666
 #define MAXLINE     1024
 #define LISTENQ     5
 #define SIZE        3
@@ -70,73 +70,56 @@ static int accept_client_proc(int srvfd)
     int clifd = -1;
     static int i = 0;
 
-    printf("%05d accpet clint proc is called.\n", __LINE__);
-
-    while (1)
-    {
-        clifd = accept(srvfd,(struct sockaddr*)&cliaddr,&cliaddrlen);
-
-        if (clifd == -1) {
-            if (errno == EINTR) {
-                continue;
-            } else {
-                fprintf(stderr, "%05d accept fail,error:%s\n", __LINE__, strerror(errno));
-                return -1;
-            }
-        }
-        
-        fprintf(stdout, "%05d accept a new client: %s:%d\n", __LINE__,
-            inet_ntoa(cliaddr.sin_addr),cliaddr.sin_port);
     
+    clifd = accept(srvfd,(struct sockaddr*)&cliaddr,&cliaddrlen);
 
-        /*add new connect descriptor to array*/
-        for (i = 0; i < SIZE; i++) {
-            if (s_srv_ctx->clifds[i] < 0) {
-                s_srv_ctx->clifds[i] = clifd;
-                s_srv_ctx->cli_cnt++;
-                break;
-            }
-        }
-        
-        printf("%05d i:[%d]\n", __LINE__, i);
-        if (i == SIZE) {
-            fprintf(stderr,"%05d too many clients.\n", __LINE__);
+    if (clifd == -1) {
+        if (errno == EINTR) {
+            
+            ;
+        } else {
+            fprintf(stderr, "%05d accept fail,error:%s\n", __LINE__, strerror(errno));
             return -1;
         }
-        
-        break;
+    }
+    
+    fprintf(stdout, "%05d accept a new client: %s:%d\n", __LINE__,
+        inet_ntoa(cliaddr.sin_addr),cliaddr.sin_port);
+    
+
+    /*add new connect descriptor to array*/
+    for (i = 0; i < SIZE; i++) {
+        if (s_srv_ctx->clifds[i] < 0) {
+            s_srv_ctx->clifds[i] = clifd;
+            s_srv_ctx->cli_cnt++;
+            break;
+        }
+    }
+    
+    if (i == SIZE) {
+        fprintf(stderr,"%05d too many clients.\n", __LINE__);
+        return -1;
     }
     
     return 0;
 }
 
-/*static int handle_client_msg(int fd, char *buf) 
-{
-    if (strlen(buf) == 0)
-    sprintf(buf, "Please input infomation give service.");    
-    write(fd, buf, strlen(buf) +1);
-    return 0;
-}*/
-
-char *recv_client_msg(fd_set *readfds)
+static char *recv_client_msg(fd_set *readfds)
 {
     int i = 0, n = 0;
     int clifd;
     char *p =NULL;
-    char buf[MAXLINE] = {0};
+    static char buf[MAXLINE] = {0};
     
-    printf("%d cli_cnt:[%d]\n", __LINE__, s_srv_ctx->cli_cnt);
     for (i = 0;i <= s_srv_ctx->cli_cnt;i++) {
         clifd = s_srv_ctx->clifds[i];
         if (clifd < 0) {
             continue;
         }
         
-        printf("%d readfds [%d]", __LINE__, FD_ISSET(clifd, readfds));
         /*judge client socket if have data*/
         if (FD_ISSET(clifd, readfds)) {
             
-            printf("%d readfds...", __LINE__);
             /*recv client send infomation*/
             n = read(clifd, buf, MAXLINE);
             if (n <= 0) {
@@ -146,17 +129,13 @@ char *recv_client_msg(fd_set *readfds)
                 s_srv_ctx->clifds[i] = -1;
                 continue;
             }
-            if (strlen(buf) == 0)
+            if ( strlen(buf) == 0)
             {
                 printf("%d waiting rcv info...", __LINE__);
                 continue;
             }
-            memcpy(p, buf, sizeof(buf));
             
-            printf("recv buf is :[%s]\n", buf);
-            
-            return p;
-            /*handle_client_msg(clifd, buf);*/
+            return buf;
         }
     }
     
@@ -179,7 +158,6 @@ static void handle_client_proc(int srvfd)
     int i = 0;
     char *p =NULL;
     
-    
     struct timeval tv;
     
     fd_set *readfds = &s_srv_ctx->allfds;
@@ -189,42 +167,30 @@ static void handle_client_proc(int srvfd)
         /*everytime transfer select needs to set file description and time, because the file description and time could modify by kernel when the function finished*/
         FD_ZERO(readfds);
         FD_ZERO(writefds);
+        
         /*add listen socket*/
         FD_SET(srvfd, readfds);
         FD_SET(srvfd, writefds);
+        
         s_srv_ctx->maxfd = srvfd;
 
-        tv.tv_sec = 5;
+        tv.tv_sec = 3;
         tv.tv_usec = 0;
+        
         printf("%s %05d connect client numbers is:[%d]\n", filename, __LINE__, s_srv_ctx->cli_cnt);
+        
         /*add client socket*/
         for (i = 0; i < s_srv_ctx->cli_cnt; i++) {
             clifd = s_srv_ctx->clifds[i];
-            /*drop useless handles*/
-            /*if (clifd != -1) {
-                FD_SET(clifd, readfds);
-            }*/
             
             FD_SET(clifd, writefds);
             FD_SET(clifd, readfds);
             
             s_srv_ctx->maxfd = (clifd > s_srv_ctx->maxfd ? clifd : s_srv_ctx->maxfd);
-            printf("%5d maxfd:[%d]", __LINE__, s_srv_ctx->maxfd);
         }
-        
-        /*if (FD_ISSET(clifd, writefds))
-        {
-            write_client_proc(clifd);
-        }*/
         
         /*start select recv deal with service and client socket*/
         retval = select(s_srv_ctx->maxfd + 1, readfds, writefds, NULL, &tv);
-        
-        /*for (i = 0; i < s_srv_ctx->maxfd; i++)
-        {
-            printf("%d read:[%s], write:[%s]\n", __LINE__, FD_ISSET(s_srv_ctx->maxfd, readfds)? "r":"", FD_ISSET(s_srv_ctx->maxfd, writefds)? "w":"");
-        }*/
-        
         
         
         if (retval == -1) {
@@ -236,24 +202,23 @@ static void handle_client_proc(int srvfd)
             
         }
         
-        printf("%d FD_ISSET:[%d]", __LINE__, FD_ISSET(srvfd, readfds));
         if (FD_ISSET(srvfd, readfds)) {
             /*listen client request*/
             accept_client_proc(srvfd);
-        } else {
-            
-            printf("%d esle FD_ISSET:[%d]", __LINE__, FD_ISSET(srvfd, readfds));
+        } 
+        else {
             /*recv client message*/
             p = recv_client_msg(readfds);
             if (p != NULL)
             {
+                printf("%d recv info is :[%s]\n", __LINE__, p);
                 if (FD_ISSET(clifd, writefds))
                 {
                     write_client_proc(clifd);
                 }
             }else
             {
-                sleep(5);
+                sleep(3);
                 continue;
             } 
             
@@ -312,7 +277,7 @@ int main(int argc,char *argv[])
         server_uninit();
         return -1;
     }
-   
+    
     /*start recv and deal with client request*/
     handle_client_proc(srvfd);
     server_uninit();
