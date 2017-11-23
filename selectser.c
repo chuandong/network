@@ -48,7 +48,7 @@ static int create_server_proc(const char* ip,int port)
 
     bzero(&servaddr,sizeof(servaddr));
     servaddr.sin_family = AF_INET;
-    /*servaddr.sin_addr = inet_addr(ip);*/
+    /*servaddr.sin_addr.s_addr = inet_addr(ip);*/
     inet_pton(AF_INET,ip,&servaddr.sin_addr);
     servaddr.sin_port = htons(port);
 
